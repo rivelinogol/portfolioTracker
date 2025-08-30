@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+/* Forzar esquema oscuro por defecto */
+:root { color-scheme: dark; }
+
+html, body { height: 100%; }
+
+body {
+  /* Fondo y texto base en oscuro */
+  @apply bg-gray-950 text-gray-100 antialiased;
+}
+
+/* Tabla densa */
+.table-dense th,
+.table-dense td {
+  @apply px-3 py-2;
+}
+

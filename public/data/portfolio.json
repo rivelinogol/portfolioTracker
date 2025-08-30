@@ -1,0 +1,9 @@
+{
+  "holdings": [
+    { "ticker": "UNH",   "name": "UnitedHealth Group",      "quantity": 10,  "avgCost": 480.0, "currency": "USD" },
+    { "ticker": "BRK.B", "name": "Berkshire Hathaway (B)",  "quantity": 8,   "avgCost": 390.0, "currency": "USD" },
+    { "ticker": "SPY",   "name": "SPDR S&P 500 ETF",        "quantity": 5,   "avgCost": 520.0, "currency": "USD" },
+    { "ticker": "BTC-USD","name": "Bitcoin USD",            "quantity": 0.5, "avgCost": 60000.0,"currency": "USD" }
+  ]
+}
+
