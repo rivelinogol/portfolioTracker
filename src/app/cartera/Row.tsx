@@ -26,6 +26,7 @@ type Tx = {
 
 type ComputedTx = Tx & {
   pnl: number
+  pct?: number
 }
 
 export default function Row(props: RowProps) {
@@ -59,18 +60,23 @@ export default function Row(props: RowProps) {
             qty += q
             avgCost = qty > 0 ? totalCost / qty : 0
             const pnl = (cur - p) * q // PnL no realizado por compra
-            return { ...t, pnl }
+            const pct = p ? (cur - p) / p : 0
+            return { ...t, pnl, pct }
           } else if (t.type === "sell") {
             const q = t.quantity ?? 0
             const p = t.price ?? 0
             const fees = t.fees ?? 0
             const pnl = (p - avgCost) * q - fees // PnL realizado
+            const denom = avgCost * q
+            const pct = denom ? pnl / denom : 0
             qty = Math.max(0, qty - q)
             // avgCost se mantiene bajo promedio móvil simple
-            return { ...t, pnl }
+            return { ...t, pnl, pct }
           } else {
             const cash = t.cash ?? 0
-            return { ...t, pnl: cash } // dividendos suman como PnL efectivo
+            const base = avgCost * qty
+            const pct = base ? cash / base : undefined
+            return { ...t, pnl: cash, pct } // dividendos suman como PnL efectivo
           }
         })
 
@@ -151,6 +157,7 @@ export default function Row(props: RowProps) {
                       <th className="text-right text-gray-300">Precio</th>
                       <th className="text-right text-gray-300">Importe</th>
                       <th className="text-right text-gray-300">PnL</th>
+                      <th className="text-right text-gray-300">PnL %</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800">
@@ -159,6 +166,7 @@ export default function Row(props: RowProps) {
                       const price = t.price ?? 0
                       const amount = t.type === "dividend" ? (t.cash ?? 0) : qty * price
                       const pnl = t.pnl
+                      const pct = t.pct
                       return (
                         <tr key={`${t.date}-${i}`} className="odd:bg-gray-950 even:bg-gray-900/30">
                           <td className="text-gray-300 whitespace-nowrap">{t.date}</td>
@@ -167,6 +175,9 @@ export default function Row(props: RowProps) {
                           <td className="[font-variant-numeric:tabular-nums] text-right">{price ? fmtMoney(price) : "-"}</td>
                           <td className="[font-variant-numeric:tabular-nums] text-right">{fmtMoney(amount)}</td>
                           <td className={`[font-variant-numeric:tabular-nums] text-right ${pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtMoney(pnl)}</td>
+                          <td className={`[font-variant-numeric:tabular-nums] text-right ${pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{
+                            pct === undefined ? "-" : `${(pct * 100).toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`
+                          }</td>
                         </tr>
                       )
                     })}
