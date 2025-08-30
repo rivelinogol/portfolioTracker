@@ -35,7 +35,7 @@ function cmpDescDate(a: string, b: string) {
   return a < b ? 1 : a > b ? -1 : 0
 }
 
-export default async function MovimientosPage({ searchParams }: { searchParams?: { p?: string } }) {
+export default async function MovimientosPage({ searchParams }: { searchParams?: { p?: string; range?: string; from?: string; to?: string } }) {
   const [{ transactions }, { prices }, { holdings }] = await Promise.all([
     readJson<Transactions>('data', 'transactions.json'),
     readJson<Prices>('data', 'prices.json'),
@@ -44,11 +44,31 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
 
   const currencyByTicker = new Map(holdings.map((h) => [h.ticker, h.currency]))
 
-  // Calcular PnL y avgCost por ticker recorriendo en orden ascendente
+  // Definir rango temporal
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const range = searchParams?.range ?? 'all'
+  const toISO = searchParams?.to ?? todayISO
+  const fromISO = searchParams?.from ?? (
+    range === 'ytd'
+      ? `${new Date(toISO).getFullYear()}-01-01`
+      : range === '1m'
+        ? new Date(new Date(toISO).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        : '2010-01-01'
+  )
+
+  const fromDate = new Date(fromISO + 'T00:00:00Z')
+  const toDate = new Date(toISO + 'T23:59:59Z')
+
+  // Calcular PnL y avgCost por ticker recorriendo en orden ascendente, solo hasta `to`
   type State = { qty: number; avgCost: number }
   const state = new Map<string, State>()
 
-  const asc = [...transactions].sort((a, b) => (a.date < b.date ? -1 : 1))
+  const asc = [...transactions]
+    .filter((t) => new Date(t.date + 'T00:00:00Z') <= toDate)
+    .sort((a, b) => (a.date < b.date ? -1 : 1))
+
+  let realizedInRange = 0
+
   const computed = asc.map((t) => {
     const s = state.get(t.ticker) ?? { qty: 0, avgCost: 0 }
     const cur = prices[t.ticker] ?? 0
@@ -69,11 +89,16 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
       const denom = s.avgCost * q
       pct = denom ? pnl / denom : 0
       s.qty = Math.max(0, s.qty - q)
+      // Si la venta cae en el rango, sumar al realizado del periodo
+      const d = new Date(t.date + 'T00:00:00Z')
+      if (d >= fromDate && d <= toDate) realizedInRange += pnl
     } else {
       const cash = t.cash ?? 0
       pnl = cash
       const base = s.avgCost * s.qty
       pct = base ? cash / base : undefined
+      const d = new Date(t.date + 'T00:00:00Z')
+      if (d >= fromDate && d <= toDate) realizedInRange += cash
     }
 
     state.set(t.ticker, s)
@@ -87,7 +112,12 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
   })
 
   // Mostrar más recientes primero
-  const desc = computed.sort((a, b) => cmpDescDate(a.date, b.date))
+  const desc = computed
+    .filter((t) => {
+      const d = new Date(t.date + 'T00:00:00Z')
+      return d >= fromDate && d <= toDate
+    })
+    .sort((a, b) => cmpDescDate(a.date, b.date))
 
   const page = Number(searchParams?.p ?? '1') || 1
   const pageSize = 20
@@ -95,11 +125,42 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
   const start = (page - 1) * pageSize
   const view = desc.slice(start, start + pageSize)
 
+  // PnL no realizado al cierre del rango (toDate)
+  let unrealized = 0
+  for (const [ticker, s] of state) {
+    const cur = prices[ticker] ?? 0
+    unrealized += (cur - s.avgCost) * s.qty
+  }
+  const totalPnl = realizedInRange + unrealized
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-4 flex items-baseline justify-between">
         <h1 className="text-lg font-semibold">Movimientos</h1>
         <Link href="/cartera" className="text-blue-400 hover:underline text-sm">← Volver a Cartera</Link>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 w-full sm:w-auto">
+          <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+            <div className="text-xs text-gray-400">PnL realizado ({fromISO} → {toISO})</div>
+            <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${realizedInRange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(realizedInRange, 'USD')}</div>
+          </div>
+          <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+            <div className="text-xs text-gray-400">PnL no realizado (al {toISO})</div>
+            <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${unrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(unrealized, 'USD')}</div>
+          </div>
+          <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+            <div className="text-xs text-gray-400">PnL total</div>
+            <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(totalPnl, 'USD')}</div>
+          </div>
+        </div>
+        <div className="text-sm text-gray-300 flex items-center gap-2">
+          <span className="text-gray-400">Período:</span>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='1m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={`/movimientos?range=1m`}>1M</a>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='ytd'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={`/movimientos?range=ytd`}>YTD</a>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='all'&&!searchParams?.from&&!searchParams?.to?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={`/movimientos?range=all`}>Todo</a>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg ring-1 ring-gray-800">
@@ -150,4 +211,3 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
     </main>
   )
 }
-
