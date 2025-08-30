@@ -20,13 +20,45 @@ async function getPortfolio(): Promise<Portfolio> {
   return JSON.parse(file) as Portfolio
 }
 
+type Prices = { prices: Record<string, number> }
+
+async function getPrices(): Promise<Prices> {
+  const filePath = path.join(process.cwd(), 'public', 'data', 'prices.json')
+  const file = await fs.readFile(filePath, 'utf8')
+  return JSON.parse(file) as Prices
+}
+
 export default async function CarteraPage() {
-  const { holdings } = await getPortfolio()
+  const [{ holdings }, { prices }] = await Promise.all([
+    getPortfolio(),
+    getPrices(),
+  ])
 
   const formatQty = (n: number) =>
     n.toLocaleString('es-AR', { maximumFractionDigits: 6 })
 
-  const totalQty = holdings.reduce((sum, h) => sum + h.quantity, 0)
+  const formatMoney = (n: number, currency: string) =>
+    new Intl.NumberFormat('es-AR', { style: 'currency', currency }).format(n)
+
+  const rows = holdings.map((h) => {
+    const currentPrice = prices[h.ticker]
+    const value = (currentPrice ?? 0) * h.quantity
+    const invested = h.avgCost * h.quantity
+    const pnl = value - invested
+    const pnlPct = invested ? pnl / invested : 0
+    return { h, currentPrice, value, invested, pnl, pnlPct }
+  })
+
+  const totals = rows.reduce(
+    (acc, r) => {
+      acc.qty += r.h.quantity
+      acc.value += r.value
+      acc.invested += r.invested
+      acc.pnl += r.pnl
+      return acc
+    },
+    { qty: 0, value: 0, invested: 0, pnl: 0 }
+  )
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
@@ -45,10 +77,19 @@ export default async function CarteraPage() {
               <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
                 Cantidad
               </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
+                Valor
+              </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
+                PnL
+              </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
+                PnL %
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {holdings.map((h) => (
+            {rows.map(({ h, value, pnl, pnlPct }) => (
               <tr
                 key={h.ticker}
                 className="odd:bg-gray-950 even:bg-gray-900/30 hover:bg-gray-800/50 transition-colors"
@@ -60,13 +101,19 @@ export default async function CarteraPage() {
                 </td>
                 <td className="text-gray-300">{h.name}</td>
                 <td className="[font-variant-numeric:tabular-nums] text-right">{formatQty(h.quantity)}</td>
+                <td className="[font-variant-numeric:tabular-nums] text-right">{formatMoney(value, h.currency)}</td>
+                <td className={`[font-variant-numeric:tabular-nums] text-right ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatMoney(pnl, h.currency)}</td>
+                <td className={`[font-variant-numeric:tabular-nums] text-right ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{(pnlPct * 100).toLocaleString('es-AR', { maximumFractionDigits: 2 })}%</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr className="border-t border-gray-800 bg-gray-900/40">
               <td colSpan={2} className="text-right font-medium text-gray-300">Total</td>
-              <td className="[font-variant-numeric:tabular-nums] text-right font-semibold text-gray-100">{formatQty(totalQty)}</td>
+              <td className="[font-variant-numeric:tabular-nums] text-right font-semibold text-gray-100">{formatQty(totals.qty)}</td>
+              <td className="[font-variant-numeric:tabular-nums] text-right font-semibold text-gray-100">{formatMoney(totals.value, 'USD')}</td>
+              <td className={`[font-variant-numeric:tabular-nums] text-right font-semibold ${totals.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatMoney(totals.pnl, 'USD')}</td>
+              <td className="[font-variant-numeric:tabular-nums] text-right font-semibold text-gray-100">{((totals.pnl / (totals.invested || 1)) * 100).toLocaleString('es-AR', { maximumFractionDigits: 2 })}%</td>
             </tr>
           </tfoot>
         </table>
