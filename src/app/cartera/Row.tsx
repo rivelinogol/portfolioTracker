@@ -12,6 +12,8 @@ type RowProps = {
   pnl: number
   pnlPct: number
   currentPrice?: number
+  realized?: number
+  unrealized?: number
 }
 
 type Tx = {
@@ -30,7 +32,7 @@ type ComputedTx = Tx & {
 }
 
 export default function Row(props: RowProps) {
-  const { ticker, name, quantity, currency, value, pnl, pnlPct, currentPrice } = props
+  const { ticker, name, quantity, currency, value, pnl, pnlPct, currentPrice, realized = 0, unrealized = 0 } = props
   const [open, setOpen] = useState(false)
   const [txs, setTxs] = useState<ComputedTx[] | null>(null)
   const [page, setPage] = useState(1)
@@ -144,6 +146,21 @@ export default function Row(props: RowProps) {
                   >
                     Next »
                   </button>
+                </div>
+              </div>
+
+              <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="rounded border border-gray-800 bg-gray-950/50 p-2">
+                  <div className="text-[11px] text-gray-400">Realizado</div>
+                  <div className={`mt-0.5 text-sm [font-variant-numeric:tabular-nums] ${realized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(realized)}</div>
+                </div>
+                <div className="rounded border border-gray-800 bg-gray-950/50 p-2">
+                  <div className="text-[11px] text-gray-400">No realizado</div>
+                  <div className={`mt-0.5 text-sm [font-variant-numeric:tabular-nums] ${unrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(unrealized)}</div>
+                </div>
+                <div className="rounded border border-gray-800 bg-gray-950/50 p-2">
+                  <div className="text-[11px] text-gray-400">Total</div>
+                  <div className={`mt-0.5 text-sm [font-variant-numeric:tabular-nums] ${(realized + unrealized) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(realized + unrealized)}</div>
                 </div>
               </div>
 

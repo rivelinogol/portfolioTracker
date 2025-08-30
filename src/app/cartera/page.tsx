@@ -28,10 +28,29 @@ async function getPrices(): Promise<Prices> {
   return JSON.parse(file) as Prices
 }
 
+type Tx = {
+  ticker: string
+  date: string
+  type: 'buy' | 'sell' | 'dividend'
+  quantity?: number
+  price?: number
+  cash?: number
+  fees?: number
+}
+
+type Transactions = { transactions: Tx[] }
+
+async function getTransactions(): Promise<Transactions> {
+  const filePath = path.join(process.cwd(), 'public', 'data', 'transactions.json')
+  const file = await fs.readFile(filePath, 'utf8')
+  return JSON.parse(file) as Transactions
+}
+
 export default async function CarteraPage() {
-  const [{ holdings }, { prices }] = await Promise.all([
+  const [{ holdings }, { prices }, { transactions }] = await Promise.all([
     getPortfolio(),
     getPrices(),
+    getTransactions(),
   ])
 
   const formatQty = (n: number) =>
@@ -40,13 +59,43 @@ export default async function CarteraPage() {
   const formatMoney = (n: number, currency: string) =>
     new Intl.NumberFormat('es-AR', { style: 'currency', currency }).format(n)
 
+  // Reconstruir qty abierta, avgCost y PnL realizado por ticker a partir de transacciones
+  type State = { qty: number; avgCost: number; realized: number }
+  const state = new Map<string, State>()
+  const ascTx = [...transactions].sort((a, b) => (a.date < b.date ? -1 : 1))
+  for (const t of ascTx) {
+    const s = state.get(t.ticker) ?? { qty: 0, avgCost: 0, realized: 0 }
+    const q = t.quantity ?? 0
+    const p = t.price ?? 0
+    const fees = t.fees ?? 0
+    if (t.type === 'buy') {
+      const totalCost = s.avgCost * s.qty + q * p + fees
+      s.qty += q
+      s.avgCost = s.qty > 0 ? totalCost / s.qty : 0
+    } else if (t.type === 'sell') {
+      const pnl = (p - s.avgCost) * q - fees
+      s.realized += pnl
+      s.qty = Math.max(0, s.qty - q)
+      // avgCost se mantiene para la posición restante
+    } else if (t.type === 'dividend') {
+      const cash = t.cash ?? 0
+      s.realized += cash
+    }
+    state.set(t.ticker, s)
+  }
+
   const rows = holdings.map((h) => {
+    const s = state.get(h.ticker)
+    const qty = s ? s.qty : h.quantity
+    const avgCost = s ? s.avgCost : h.avgCost
+    const realized = s ? s.realized : 0
     const currentPrice = prices[h.ticker]
-    const value = (currentPrice ?? 0) * h.quantity
-    const invested = h.avgCost * h.quantity
-    const pnl = value - invested
-    const pnlPct = invested ? pnl / invested : 0
-    return { h, currentPrice, value, invested, pnl, pnlPct }
+    const value = (currentPrice ?? 0) * qty
+    const invested = avgCost * qty
+    const pnlUnreal = value - invested
+    const pnl = realized + pnlUnreal
+    const pnlPct = invested ? pnlUnreal / (invested || 1) : 0
+    return { h: { ...h, quantity: qty, avgCost }, currentPrice, value, invested, pnl, pnlPct, realized, unrealized: pnlUnreal }
   })
 
   const totals = rows.reduce(
@@ -55,9 +104,11 @@ export default async function CarteraPage() {
       acc.value += r.value
       acc.invested += r.invested
       acc.pnl += r.pnl
+      acc.realized += r.realized
+      acc.unrealized += r.unrealized
       return acc
     },
-    { qty: 0, value: 0, invested: 0, pnl: 0 }
+    { qty: 0, value: 0, invested: 0, pnl: 0, realized: 0, unrealized: 0 }
   )
 
   return (
@@ -65,6 +116,21 @@ export default async function CarteraPage() {
       <div className="mb-4 flex items-baseline justify-between">
         <h1 className="text-lg font-semibold">Cartera</h1>
         <a href="/movimientos" className="text-blue-400 hover:underline text-sm">Histórico de movimientos →</a>
+      </div>
+
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+          <div className="text-xs text-gray-400">PnL realizado</div>
+          <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${totals.realized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatMoney(totals.realized, 'USD')}</div>
+        </div>
+        <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+          <div className="text-xs text-gray-400">PnL no realizado</div>
+          <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${totals.unrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatMoney(totals.unrealized, 'USD')}</div>
+        </div>
+        <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+          <div className="text-xs text-gray-400">PnL total</div>
+          <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${(totals.realized + totals.unrealized) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatMoney(totals.realized + totals.unrealized, 'USD')}</div>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg ring-1 ring-gray-800">
@@ -93,7 +159,7 @@ export default async function CarteraPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {rows.map(({ h, value, pnl, pnlPct, currentPrice }) => (
+            {rows.map(({ h, value, pnl, pnlPct, currentPrice, realized, unrealized }) => (
               <Row
                 key={h.ticker}
                 ticker={h.ticker}
@@ -104,6 +170,8 @@ export default async function CarteraPage() {
                 pnl={pnl}
                 pnlPct={pnlPct}
                 currentPrice={currentPrice}
+                realized={realized}
+                unrealized={unrealized}
               />
             ))}
           </tbody>
