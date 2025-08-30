@@ -23,6 +23,12 @@ function toDMY(date) {
   return `${d}-${m}-${y}`
 }
 
+function parseDMYtoDate(s) {
+  const [d, m, y] = String(s).split(/[\/\-]/).map((n) => Number(n))
+  if (!y || !m || !d) return new Date(NaN)
+  return new Date(y, m - 1, d)
+}
+
 async function fetchRange(fromISO, toISO) {
   // Intenta ISO (yyyy-mm-dd) y si falla prueba dd-mm-yyyy
   const urls = [
@@ -58,8 +64,11 @@ async function fetchAmbitoCCL(from, to) {
     const part = await fetchRange(fromY, toY).catch(() => [])
     out.push(...part)
   }
-  // Filtra por el to real
-  return out.filter((p) => new Date(p.date) <= end)
+  // Filtra por rango real [start, end]
+  return out.filter((p) => {
+    const dt = parseDMYtoDate(p.date)
+    return dt >= start && dt <= end
+  })
 }
 
 async function main() {
