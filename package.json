@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "fetch:ccl": "node scripts/fetch_ccl.mjs"
   },
   "dependencies": {
     "react": "19.1.0",
