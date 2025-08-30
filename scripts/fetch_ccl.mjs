@@ -63,8 +63,22 @@ async function fetchAmbitoCCL(from, to) {
 }
 
 async function main() {
-  const from = process.argv[2] || '2010-01-01'
-  const to = process.argv[3] || toISO(new Date())
+  const args = process.argv.slice(2)
+  const force = args.includes('--force')
+  const [from = '2010-01-01', to = toISO(new Date())] = args.filter((a) => !a.startsWith('--'))
+  const outPath = path.join(process.cwd(), 'public', 'data', 'ccl.json')
+
+  // Si ya existe y no se fuerza, no volver a descargar
+  try {
+    if (!force) {
+      await fs.access(outPath)
+      console.log(`Skip: ${outPath} ya existe. Usa --force para regenerar.`)
+      return
+    }
+  } catch (_) {
+    // no existe, continuamos
+  }
+
   const series = await fetchAmbitoCCL(from, to)
   const out = {
     source: 'Ambito - dolarrava/cl historico-general',
@@ -73,7 +87,6 @@ async function main() {
     to,
     series,
   }
-  const outPath = path.join(process.cwd(), 'public', 'data', 'ccl.json')
   await fs.mkdir(path.dirname(outPath), { recursive: true })
   await fs.writeFile(outPath, JSON.stringify(out, null, 2), 'utf8')
   console.log(`Saved ${series.length} rows to ${outPath}`)
