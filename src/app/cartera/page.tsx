@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs'
 import path from 'path'
-import Link from 'next/link'
+import Row from './Row'
 
 type Holding = {
   ticker: string
@@ -86,25 +86,21 @@ export default async function CarteraPage() {
               <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
                 PnL %
               </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
             {rows.map(({ h, value, pnl, pnlPct }) => (
-              <tr
+              <Row
                 key={h.ticker}
-                className="odd:bg-gray-950 even:bg-gray-900/30 hover:bg-gray-800/50 transition-colors"
-              >
-                <td className="whitespace-nowrap font-medium text-gray-100">
-                  <Link href={`/cartera/${encodeURIComponent(h.ticker)}`} className="hover:underline">
-                    {h.ticker}
-                  </Link>
-                </td>
-                <td className="text-gray-300">{h.name}</td>
-                <td className="[font-variant-numeric:tabular-nums] text-right">{formatQty(h.quantity)}</td>
-                <td className="[font-variant-numeric:tabular-nums] text-right">{formatMoney(value, h.currency)}</td>
-                <td className={`[font-variant-numeric:tabular-nums] text-right ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatMoney(pnl, h.currency)}</td>
-                <td className={`[font-variant-numeric:tabular-nums] text-right ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{(pnlPct * 100).toLocaleString('es-AR', { maximumFractionDigits: 2 })}%</td>
-              </tr>
+                ticker={h.ticker}
+                name={h.name}
+                quantity={h.quantity}
+                currency={h.currency}
+                value={value}
+                pnl={pnl}
+                pnlPct={pnlPct}
+              />
             ))}
           </tbody>
           <tfoot>
@@ -114,6 +110,7 @@ export default async function CarteraPage() {
               <td className="[font-variant-numeric:tabular-nums] text-right font-semibold text-gray-100">{formatMoney(totals.value, 'USD')}</td>
               <td className={`[font-variant-numeric:tabular-nums] text-right font-semibold ${totals.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatMoney(totals.pnl, 'USD')}</td>
               <td className="[font-variant-numeric:tabular-nums] text-right font-semibold text-gray-100">{((totals.pnl / (totals.invested || 1)) * 100).toLocaleString('es-AR', { maximumFractionDigits: 2 })}%</td>
+              <td></td>
             </tr>
           </tfoot>
         </table>
