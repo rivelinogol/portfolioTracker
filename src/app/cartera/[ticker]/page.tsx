@@ -5,8 +5,10 @@ import Link from 'next/link'
 type Tx = {
   ticker: string
   date: string // ISO yyyy-mm-dd
-  quantity: number
-  price: number
+  type: 'buy' | 'sell' | 'dividend'
+  quantity?: number
+  price?: number
+  cash?: number
   fees?: number
 }
 
@@ -55,19 +57,60 @@ export default async function TickerPage({ params }: { params: { ticker: string 
     )
   }
 
-  const totals = txs.reduce(
-    (acc, t) => {
-      const invested = t.quantity * t.price + (t.fees ?? 0)
-      const value = t.quantity * currentPrice
+  // Calcular PnL realizado vs no realizado y lista detallada
+  const asc = [...txs].sort((a, b) => (a.date < b.date ? -1 : 1))
+  let qty = 0
+  let avgCost = 0
+  let realized = 0
+  const cur = currentPrice ?? 0
+
+  type Row = {
+    date: string
+    type: Tx['type']
+    quantity: number
+    price: number
+    invested: number
+    value: number
+    pnl: number
+    pct?: number
+    realized: boolean
+  }
+
+  const rows: Row[] = asc.map((t) => {
+    if (t.type === 'buy') {
+      const q = t.quantity ?? 0
+      const p = t.price ?? 0
+      const fees = t.fees ?? 0
+      const totalCost = avgCost * qty + q * p + fees
+      qty += q
+      avgCost = qty > 0 ? totalCost / qty : 0
+      const invested = q * p + fees
+      const value = q * cur
       const pnl = value - invested
-      acc.qty += t.quantity
-      acc.invested += invested
-      acc.value += value
-      acc.pnl += pnl
-      return acc
-    },
-    { qty: 0, invested: 0, value: 0, pnl: 0 }
-  )
+      const pct = invested ? pnl / invested : 0
+      return { date: t.date, type: t.type, quantity: q, price: p, invested, value, pnl, pct, realized: false }
+    } else if (t.type === 'sell') {
+      const q = t.quantity ?? 0
+      const p = t.price ?? 0
+      const fees = t.fees ?? 0
+      const pnl = (p - avgCost) * q - fees
+      realized += pnl
+      qty = Math.max(0, qty - q)
+      const invested = q * avgCost
+      const value = q * p
+      const pct = invested ? pnl / invested : 0
+      return { date: t.date, type: t.type, quantity: q, price: p, invested, value, pnl, pct, realized: true }
+    } else {
+      const cash = t.cash ?? 0
+      realized += cash
+      return { date: t.date, type: t.type, quantity: 0, price: 0, invested: 0, value: cash, pnl: cash, pct: undefined, realized: true }
+    }
+  })
+
+  const unrealized = (cur - avgCost) * qty
+  const investedOpen = avgCost * qty
+  const valueOpen = cur * qty
+  const totalPnl = realized + unrealized
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
@@ -78,6 +121,21 @@ export default async function TickerPage({ params }: { params: { ticker: string 
         )}
       </div>
 
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+          <div className="text-xs text-gray-400">PnL realizado</div>
+          <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${realized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatNumber(realized)}</div>
+        </div>
+        <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+          <div className="text-xs text-gray-400">PnL no realizado</div>
+          <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${unrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatNumber(unrealized)}</div>
+        </div>
+        <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+          <div className="text-xs text-gray-400">PnL total</div>
+          <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatNumber(totalPnl)}</div>
+        </div>
+      </div>
+
       <div className="overflow-x-auto rounded-lg ring-1 ring-gray-800">
         <table className="table-dense w-full text-[13px]">
           <thead>
@@ -85,6 +143,7 @@ export default async function TickerPage({ params }: { params: { ticker: string 
               <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300">
                 Fecha
               </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300">Tipo</th>
               <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
                 Cantidad
               </th>
@@ -109,34 +168,35 @@ export default async function TickerPage({ params }: { params: { ticker: string 
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {txs.map((t, i) => {
-              const invested = t.quantity * t.price + (t.fees ?? 0)
-              const value = t.quantity * currentPrice
-              const pnl = value - invested
-              const pnlPct = invested ? pnl / invested : 0
-              return (
-                <tr key={`${t.date}-${i}`} className="odd:bg-gray-950 even:bg-gray-900/30 hover:bg-gray-800/50 transition-colors">
-                  <td className="text-gray-300 whitespace-nowrap">{t.date}</td>
-                  <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(t.quantity)}</td>
-                  <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(t.price)}</td>
-                  <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(invested)}</td>
-                  <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(value)}</td>
-                  <td className="[font-variant-numeric:tabular-nums] text-right {pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}">{formatNumber(pnl)}</td>
-                  <td className="[font-variant-numeric:tabular-nums] text-right {pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}">{formatNumber(pnlPct * 100, { maximumFractionDigits: 2 })}%</td>
-                  <td className="[font-variant-numeric:tabular-nums] text-right">{daysBetween(t.date)}</td>
-                </tr>
-              )
-            })}
+            {rows
+              .slice()
+              .sort((a, b) => (a.date < b.date ? 1 : -1))
+              .map((r, i) => {
+                const pct = r.pct ?? (r.invested ? r.pnl / r.invested : 0)
+                return (
+                  <tr key={`${r.date}-${i}`} className="odd:bg-gray-950 even:bg-gray-900/30 hover:bg-gray-800/50 transition-colors">
+                    <td className="text-gray-300 whitespace-nowrap">{r.date}</td>
+                    <td className="text-gray-300 uppercase">{r.type}</td>
+                    <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(r.quantity)}</td>
+                    <td className="[font-variant-numeric:tabular-nums] text-right">{r.price ? formatNumber(r.price) : '-'}</td>
+                    <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(r.invested)}</td>
+                    <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(r.value)}</td>
+                    <td className={`[font-variant-numeric:tabular-nums] text-right ${r.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatNumber(r.pnl)}</td>
+                    <td className={`[font-variant-numeric:tabular-nums] text-right ${r.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{isFinite(pct) ? formatNumber(pct * 100, { maximumFractionDigits: 2 }) + '%' : '-'}</td>
+                    <td className="[font-variant-numeric:tabular-nums] text-right">{daysBetween(r.date)}</td>
+                  </tr>
+                )
+              })}
           </tbody>
           <tfoot>
             <tr className="border-t border-gray-800 bg-gray-900/40">
-              <td className="text-right font-medium text-gray-300">Totales</td>
-              <td className="[font-variant-numeric:tabular-nums] text-right font-semibold text-gray-100">{formatNumber(totals.qty)}</td>
+              <td className="text-right font-medium text-gray-300">Abierto</td>
+              <td className="[font-variant-numeric:tabular-nums] text-right font-semibold text-gray-100">{formatNumber(qty)}</td>
               <td></td>
-              <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(totals.invested)}</td>
-              <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(totals.value)}</td>
-              <td className="[font-variant-numeric:tabular-nums] text-right {totals.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}">{formatNumber(totals.pnl)}</td>
-              <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber((totals.pnl / (totals.invested || 1)) * 100, { maximumFractionDigits: 2 })}%</td>
+              <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(investedOpen)}</td>
+              <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber(valueOpen)}</td>
+              <td className={`[font-variant-numeric:tabular-nums] text-right ${unrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatNumber(unrealized)}</td>
+              <td className="[font-variant-numeric:tabular-nums] text-right">{formatNumber((unrealized / (investedOpen || 1)) * 100, { maximumFractionDigits: 2 })}%</td>
               <td></td>
             </tr>
           </tfoot>
@@ -151,4 +211,3 @@ export default async function TickerPage({ params }: { params: { ticker: string 
     </main>
   )
 }
-
