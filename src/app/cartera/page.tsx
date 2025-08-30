@@ -90,7 +90,7 @@ export default async function CarteraPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {rows.map(({ h, value, pnl, pnlPct }) => (
+            {rows.map(({ h, value, pnl, pnlPct, currentPrice }) => (
               <Row
                 key={h.ticker}
                 ticker={h.ticker}
@@ -100,6 +100,7 @@ export default async function CarteraPage() {
                 value={value}
                 pnl={pnl}
                 pnlPct={pnlPct}
+                currentPrice={currentPrice}
               />
             ))}
           </tbody>
