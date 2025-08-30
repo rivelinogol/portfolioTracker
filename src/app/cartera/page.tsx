@@ -62,7 +62,10 @@ export default async function CarteraPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
-      <h1 className="mb-4 text-lg font-semibold">Cartera</h1>
+      <div className="mb-4 flex items-baseline justify-between">
+        <h1 className="text-lg font-semibold">Cartera</h1>
+        <a href="/movimientos" className="text-blue-400 hover:underline text-sm">Histórico de movimientos →</a>
+      </div>
 
       <div className="overflow-x-auto rounded-lg ring-1 ring-gray-800">
         <table className="table-dense w-full text-[13px]">
