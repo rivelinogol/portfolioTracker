@@ -13,6 +13,5 @@ body {
 /* Tabla densa */
 .table-dense th,
 .table-dense td {
-  @apply px-3 py-2;
+  @apply px-3 py-1.5;
 }
-

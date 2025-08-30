@@ -1,0 +1,18 @@
+{
+  "transactions": [
+    { "ticker": "SPY", "date": "2024-01-15", "quantity": 2, "price": 470.0, "fees": 0.0 },
+    { "ticker": "SPY", "date": "2024-04-10", "quantity": 1, "price": 500.0, "fees": 0.0 },
+    { "ticker": "SPY", "date": "2024-07-22", "quantity": 1, "price": 530.0, "fees": 0.0 },
+    { "ticker": "SPY", "date": "2024-10-05", "quantity": 1, "price": 515.0, "fees": 0.0 },
+
+    { "ticker": "UNH", "date": "2024-02-01", "quantity": 5, "price": 480.0, "fees": 0.0 },
+    { "ticker": "UNH", "date": "2024-05-20", "quantity": 5, "price": 482.0, "fees": 0.0 },
+
+    { "ticker": "BRK.B", "date": "2024-03-12", "quantity": 4, "price": 385.0, "fees": 0.0 },
+    { "ticker": "BRK.B", "date": "2024-06-18", "quantity": 4, "price": 395.0, "fees": 0.0 },
+
+    { "ticker": "BTC-USD", "date": "2024-08-01", "quantity": 0.25, "price": 59000.0, "fees": 0.0 },
+    { "ticker": "BTC-USD", "date": "2024-09-15", "quantity": 0.25, "price": 61000.0, "fees": 0.0 }
+  ]
+}
+
