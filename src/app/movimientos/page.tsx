@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import Link from 'next/link'
+import { filterAndSort } from '@/lib/filters.mjs'
 
 type Tx = {
   ticker: string
@@ -13,7 +14,6 @@ type Tx = {
 }
 
 type Transactions = { transactions: Tx[] }
-type Prices = { prices: Record<string, number> }
 type Holding = { ticker: string; currency: string; name: string }
 type Portfolio = { holdings: Holding[] }
 
@@ -31,107 +31,85 @@ function fmtMoney(n: number, currency: string) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency }).format(n)
 }
 
-function cmpDescDate(a: string, b: string) {
-  return a < b ? 1 : a > b ? -1 : 0
-}
 
-export default async function MovimientosPage({ searchParams }: { searchParams?: { p?: string; range?: string; from?: string; to?: string } }) {
-  const [{ transactions }, { prices }, { holdings }] = await Promise.all([
+
+export default async function MovimientosPage({ searchParams }: { searchParams?: Promise<Record<string, string | undefined>> }) {
+  const [{ transactions }, { holdings }] = await Promise.all([
     readJson<Transactions>('data', 'transactions.json'),
-    readJson<Prices>('data', 'prices.json'),
     readJson<Portfolio>('data', 'portfolio.json'),
   ])
 
   const currencyByTicker = new Map(holdings.map((h) => [h.ticker, h.currency]))
+  const nameByTicker = new Map(holdings.map((h) => [h.ticker, h.name]))
+
+  const sp = (await searchParams) ?? {}
 
   // Definir rango temporal
   const todayISO = new Date().toISOString().slice(0, 10)
-  const range = searchParams?.range ?? 'all'
-  const toISO = searchParams?.to ?? todayISO
-  const fromISO = searchParams?.from ?? (
+  const range = sp.range ?? 'all'
+  const validISO = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined)
+  const toParam = validISO(sp.to)
+  const fromParam = validISO(sp.from)
+  // Siempre anclar los presets a "hoy" si no se especifica `to`
+  const toISO = toParam ?? todayISO
+  const fromISO = fromParam ?? (
     range === 'ytd'
       ? `${new Date(toISO).getFullYear()}-01-01`
       : range === '1m'
         ? new Date(new Date(toISO).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-        : '2010-01-01'
+        : range === '3m'
+          ? new Date(new Date(toISO).getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+          : range === '6m'
+            ? new Date(new Date(toISO).getTime() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+            : range === '1y'
+              ? new Date(new Date(toISO).getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+              : '2010-01-01'
   )
 
-  const fromDate = new Date(fromISO + 'T00:00:00Z')
-  const toDate = new Date(toISO + 'T23:59:59Z')
+  // Asegurar from <= to
+  const fromDateRaw = new Date(fromISO + 'T00:00:00Z')
+  const toDateRaw = new Date(toISO + 'T23:59:59Z')
+  const fromDate = fromDateRaw <= toDateRaw ? fromDateRaw : new Date(toISO + 'T00:00:00Z')
+  const toDate = fromDateRaw <= toDateRaw ? toDateRaw : new Date(fromISO + 'T23:59:59Z')
 
-  // Calcular PnL y avgCost por ticker recorriendo en orden ascendente, solo hasta `to`
-  type State = { qty: number; avgCost: number }
-  const state = new Map<string, State>()
 
-  const asc = [...transactions]
-    .filter((t) => new Date(t.date + 'T00:00:00Z') <= toDate)
-    .sort((a, b) => (a.date < b.date ? -1 : 1))
-
-  let realizedInRange = 0
-
-  const computed = asc.map((t) => {
-    const s = state.get(t.ticker) ?? { qty: 0, avgCost: 0 }
-    const cur = prices[t.ticker] ?? 0
-    let pnl = 0
-    let pct: number | undefined
-    const q = t.quantity ?? 0
-    const p = t.price ?? 0
-    const fees = t.fees ?? 0
-
-    if (t.type === 'buy') {
-      const totalCost = s.avgCost * s.qty + q * p + fees
-      s.qty += q
-      s.avgCost = s.qty > 0 ? totalCost / s.qty : 0
-      pnl = (cur - p) * q
-      pct = p ? (cur - p) / p : 0
-    } else if (t.type === 'sell') {
-      pnl = (p - s.avgCost) * q - fees
-      const denom = s.avgCost * q
-      pct = denom ? pnl / denom : 0
-      s.qty = Math.max(0, s.qty - q)
-      // Si la venta cae en el rango, sumar al realizado del periodo
-      const d = new Date(t.date + 'T00:00:00Z')
-      if (d >= fromDate && d <= toDate) realizedInRange += pnl
-    } else {
-      const cash = t.cash ?? 0
-      pnl = cash
-      const base = s.avgCost * s.qty
-      pct = base ? cash / base : undefined
-      const d = new Date(t.date + 'T00:00:00Z')
-      if (d >= fromDate && d <= toDate) realizedInRange += cash
-    }
-
-    state.set(t.ticker, s)
-
-    return {
-      ...t,
-      amount: t.type === 'dividend' ? (t.cash ?? 0) : q * p + (t.type === 'buy' ? fees : -fees),
-      pnl,
-      pct,
-    }
+  // Filtrar y ordenar usando util reutilizable
+  const rows = filterAndSort(transactions, holdings, {
+    fromISO,
+    toISO,
+    ticker: sp.ticker,
+    type: sp.type,
+    qmin: sp.qmin,
+    qmax: sp.qmax,
+    pmin: sp.pmin,
+    pmax: sp.pmax,
+    amin: sp.amin,
+    amax: sp.amax,
+    sort: (sp.sort as any) || 'date',
+    dir: (sp.dir as any) || 'desc',
   })
 
-  // Mostrar más recientes primero
-  const desc = computed
-    .filter((t) => {
-      const d = new Date(t.date + 'T00:00:00Z')
-      return d >= fromDate && d <= toDate
-    })
-    .sort((a, b) => cmpDescDate(a.date, b.date))
-
-  const page = Number(searchParams?.p ?? '1') || 1
+  const page = Number(sp.p ?? '1') || 1
   const pageSize = 20
-  const totalPages = Math.max(1, Math.ceil(desc.length / pageSize))
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
   const start = (page - 1) * pageSize
-  const view = desc.slice(start, start + pageSize)
+  const view = rows.slice(start, start + pageSize)
 
-  // PnL no realizado al cierre del rango (toDate)
-  let unrealized = 0
-  for (const [ticker, s] of state) {
-    const cur = prices[ticker] ?? 0
-    unrealized += (cur - s.avgCost) * s.qty
+  // Helper para construir hrefs preservando filtros/orden
+  function hrefWith(overrides: Record<string, string | undefined>) {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(sp)) if (v) qs.set(k, v)
+    for (const [k, v] of Object.entries(overrides)) {
+      if (v === undefined || v === '') qs.delete(k)
+      else qs.set(k, v)
+    }
+    return `/movimientos?${qs.toString()}`
   }
-  const totalPnl = realizedInRange + unrealized
+
+  type SortKey = 'date' | 'ticker' | 'type' | 'quantity' | 'price' | 'amount'
+  const sortKey: SortKey = (sp.sort as SortKey) || 'date'
+  const dir = sp.dir === 'asc' ? 'asc' : 'desc'
+  const sortArrow = (key: SortKey) => (sortKey === key ? (dir === 'asc' ? ' ▲' : ' ▼') : '')
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
@@ -140,26 +118,71 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
         <Link href="/cartera" className="text-blue-400 hover:underline text-sm">← Volver a Cartera</Link>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 w-full sm:w-auto">
-          <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-            <div className="text-xs text-gray-400">PnL realizado ({fromISO} → {toISO})</div>
-            <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${realizedInRange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(realizedInRange, 'USD')}</div>
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+        <form className="flex flex-wrap gap-2 items-end text-sm" method="get" action="/movimientos">
+          <input type="hidden" name="p" value="1" />
+          <input type="hidden" name="range" value="all" />
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="ticker">Ticker/Nombre</label>
+            <input id="ticker" name="ticker" defaultValue={sp.ticker ?? ''} className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" placeholder="AAPL" />
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-            <div className="text-xs text-gray-400">PnL no realizado (al {toISO})</div>
-            <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${unrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(unrealized, 'USD')}</div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="type">Tipo</label>
+            <select id="type" name="type" defaultValue={sp.type ?? ''} className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100">
+              <option value="">Todos</option>
+              <option value="buy">buy</option>
+              <option value="sell">sell</option>
+              <option value="dividend">dividend</option>
+            </select>
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-            <div className="text-xs text-gray-400">PnL total</div>
-            <div className={`mt-1 text-lg [font-variant-numeric:tabular-nums] ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(totalPnl, 'USD')}</div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="from">Desde</label>
+            <input id="from" name="from" type="date" defaultValue={sp.from ?? ''} className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" />
           </div>
-        </div>
-        <div className="text-sm text-gray-300 flex items-center gap-2">
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="to">Hasta</label>
+            <input id="to" name="to" type="date" defaultValue={sp.to ?? ''} className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="qmin">Qty min</label>
+            <input id="qmin" name="qmin" type="number" step="any" defaultValue={sp.qmin ?? ''} className="w-24 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="qmax">Qty max</label>
+            <input id="qmax" name="qmax" type="number" step="any" defaultValue={sp.qmax ?? ''} className="w-24 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="pmin">Precio min</label>
+            <input id="pmin" name="pmin" type="number" step="any" defaultValue={sp.pmin ?? ''} className="w-28 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="pmax">Precio max</label>
+            <input id="pmax" name="pmax" type="number" step="any" defaultValue={sp.pmax ?? ''} className="w-28 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="amin">Importe min</label>
+            <input id="amin" name="amin" type="number" step="any" defaultValue={sp.amin ?? ''} className="w-28 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400" htmlFor="amax">Importe max</label>
+            <input id="amax" name="amax" type="number" step="any" defaultValue={sp.amax ?? ''} className="w-28 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" />
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" className="rounded border border-gray-700 px-2 py-1 text-sm hover:bg-gray-800 text-gray-300">Filtrar</button>
+            <a href="/movimientos" className="rounded border border-gray-700 px-2 py-1 text-sm hover:bg-gray-800 text-gray-300">Limpiar</a>
+          </div>
+        </form>
+
+        <div className="flex items-center gap-2 text-sm text-gray-300">
           <span className="text-gray-400">Período:</span>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='1m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={`/movimientos?range=1m`}>1M</a>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='ytd'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={`/movimientos?range=ytd`}>YTD</a>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='all'&&!searchParams?.from&&!searchParams?.to?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={`/movimientos?range=all`}>Todo</a>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='1m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: '1m', p: '1', from: undefined, to: undefined })}>1M</a>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='3m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: '3m', p: '1', from: undefined, to: undefined })}>3M</a>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='6m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: '6m', p: '1', from: undefined, to: undefined })}>6M</a>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='1y'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: '1y', p: '1', from: undefined, to: undefined })}>1Y</a>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='ytd'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: 'ytd', p: '1', from: undefined, to: undefined })}>YTD</a>
+          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='all'&&!sp.from&&!sp.to?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: 'all', p: '1', from: undefined, to: undefined })}>Todo</a>
+          <a className="ml-2 rounded border border-gray-700 px-2 py-1 hover:bg-gray-800 text-gray-300" href={hrefWith({ to: todayISO, p: '1', range: 'all' })}>Hoy</a>
+          <span className="ml-2 text-gray-500">{fromISO} → {toISO}</span>
         </div>
       </div>
 
@@ -167,14 +190,24 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
         <table className="table-dense w-full text-[13px]">
           <thead>
             <tr className="text-left">
-              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300">Fecha</th>
-              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300">Ticker</th>
-              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300">Tipo</th>
-              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">Cantidad</th>
-              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">Precio</th>
-              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">Importe</th>
-              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">PnL</th>
-              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">PnL %</th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300">
+                <Link href={hrefWith({ sort: 'date', dir: (sp.sort === 'date' && sp.dir === 'asc') ? 'desc' : 'asc', p: '1' })} className="hover:underline">Fecha{sortArrow('date')}</Link>
+              </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300">
+                <Link href={hrefWith({ sort: 'ticker', dir: (sp.sort === 'ticker' && sp.dir === 'asc') ? 'desc' : 'asc', p: '1' })} className="hover:underline">Ticker{sortArrow('ticker')}</Link>
+              </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300">
+                <Link href={hrefWith({ sort: 'type', dir: (sp.sort === 'type' && sp.dir === 'asc') ? 'desc' : 'asc', p: '1' })} className="hover:underline">Tipo{sortArrow('type')}</Link>
+              </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
+                <Link href={hrefWith({ sort: 'quantity', dir: (sp.sort === 'quantity' && sp.dir === 'asc') ? 'desc' : 'asc', p: '1' })} className="hover:underline">Cantidad{sortArrow('quantity')}</Link>
+              </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
+                <Link href={hrefWith({ sort: 'price', dir: (sp.sort === 'price' && sp.dir === 'asc') ? 'desc' : 'asc', p: '1' })} className="hover:underline">Precio{sortArrow('price')}</Link>
+              </th>
+              <th className="sticky top-0 z-10 bg-gray-900/80 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 font-medium text-gray-300 text-right">
+                <Link href={hrefWith({ sort: 'amount', dir: (sp.sort === 'amount' && sp.dir === 'asc') ? 'desc' : 'asc', p: '1' })} className="hover:underline">Importe{sortArrow('amount')}</Link>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
@@ -192,8 +225,6 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
                   <td className="[font-variant-numeric:tabular-nums] text-right">{qty ? fmtQty(qty) : '-'}</td>
                   <td className="[font-variant-numeric:tabular-nums] text-right">{price ? fmtMoney(price, currency) : '-'}</td>
                   <td className="[font-variant-numeric:tabular-nums] text-right">{fmtMoney(t.amount, currency)}</td>
-                  <td className={`[font-variant-numeric:tabular-nums] text-right ${t.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtMoney(t.pnl, currency)}</td>
-                  <td className={`[font-variant-numeric:tabular-nums] text-right ${t.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{t.pct === undefined ? '-' : `${(t.pct * 100).toLocaleString('es-AR', { maximumFractionDigits: 2 })}%`}</td>
                 </tr>
               )
             })}
@@ -204,8 +235,8 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
       <div className="mt-3 flex items-center justify-end gap-2 text-sm text-gray-400">
         <span> Página {page} de {totalPages} </span>
         <div className="ml-2 flex gap-2">
-          <Link className={`rounded border border-gray-700 px-2 py-1 ${page <= 1 ? 'pointer-events-none opacity-50' : 'hover:bg-gray-800 text-gray-300'}`} href={`/movimientos?p=${Math.max(1, page - 1)}`}>« Prev</Link>
-          <Link className={`rounded border border-gray-700 px-2 py-1 ${page >= totalPages ? 'pointer-events-none opacity-50' : 'hover:bg-gray-800 text-gray-300'}`} href={`/movimientos?p=${Math.min(totalPages, page + 1)}`}>Next »</Link>
+          <Link className={`rounded border border-gray-700 px-2 py-1 ${page <= 1 ? 'pointer-events-none opacity-50' : 'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ p: String(Math.max(1, page - 1)) })}>« Prev</Link>
+          <Link className={`rounded border border-gray-700 px-2 py-1 ${page >= totalPages ? 'pointer-events-none opacity-50' : 'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ p: String(Math.min(totalPages, page + 1)) })}>Next »</Link>
         </div>
       </div>
     </main>
