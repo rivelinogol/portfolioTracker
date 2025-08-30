@@ -1,0 +1,9 @@
+{
+  "metadata": {
+    "UNH": { "sector": "Health Care", "country": "US" },
+    "BRK.B": { "sector": "Financials", "country": "US" },
+    "SPY": { "sector": "ETF - Broad Market", "country": "US" },
+    "BTC-USD": { "sector": "Crypto", "country": "Global" }
+  }
+}
+

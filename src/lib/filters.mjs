@@ -75,7 +75,8 @@ export function filterAndSort(transactions, holdings, params) {
       const fType = (params.type ?? '').trim().toLowerCase()
       const num = (v) => {
         if (v === undefined || v === '') return undefined
-        const n = Number(v)
+        const s = String(v).trim().replace(',', '.')
+        const n = Number(s)
         return Number.isFinite(n) ? n : undefined
       }
       const qmin = num(params.qmin), qmax = num(params.qmax)
@@ -86,13 +87,14 @@ export function filterAndSort(transactions, holdings, params) {
       const name = (nameByTicker.get(t.ticker) ?? '').toLowerCase()
       if (fTicker && !(ticker.includes(fTicker) || name.includes(fTicker))) return false
       if (fType && t.type.toLowerCase() !== fType) return false
-      const q = t.quantity ?? 0
-      const p = t.price ?? 0
+      const q = t.quantity
+      const p = t.price
       const a = t.amount
-      if (qmin !== undefined && q < qmin) return false
-      if (qmax !== undefined && q > qmax) return false
-      if (pmin !== undefined && p < pmin) return false
-      if (pmax !== undefined && p > pmax) return false
+      // Para filtros numéricos en qty/precio, si el campo no existe, no cumple el filtro
+      if (qmin !== undefined && (q === undefined || q < qmin)) return false
+      if (qmax !== undefined && (q === undefined || q > qmax)) return false
+      if (pmin !== undefined && (p === undefined || p < pmin)) return false
+      if (pmax !== undefined && (p === undefined || p > pmax)) return false
       if (amin !== undefined && a < amin) return false
       if (amax !== undefined && a > amax) return false
       return true
@@ -114,4 +116,3 @@ export function filterAndSort(transactions, holdings, params) {
 
   return rows
 }
-

@@ -119,9 +119,8 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
       </div>
 
       <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
-        <form className="flex flex-wrap gap-2 items-end text-sm" method="get" action="/movimientos">
+        <form id="filters" className="flex flex-wrap gap-2 items-end text-sm" method="get" action="/movimientos">
           <input type="hidden" name="p" value="1" />
-          <input type="hidden" name="range" value="all" />
           <div className="flex flex-col">
             <label className="text-xs text-gray-400" htmlFor="ticker">Ticker/Nombre</label>
             <input id="ticker" name="ticker" defaultValue={sp.ticker ?? ''} className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100" placeholder="AAPL" />
@@ -175,13 +174,27 @@ export default async function MovimientosPage({ searchParams }: { searchParams?:
 
         <div className="flex items-center gap-2 text-sm text-gray-300">
           <span className="text-gray-400">Período:</span>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='1m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: '1m', p: '1', from: undefined, to: undefined })}>1M</a>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='3m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: '3m', p: '1', from: undefined, to: undefined })}>3M</a>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='6m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: '6m', p: '1', from: undefined, to: undefined })}>6M</a>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='1y'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: '1y', p: '1', from: undefined, to: undefined })}>1Y</a>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='ytd'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: 'ytd', p: '1', from: undefined, to: undefined })}>YTD</a>
-          <a className={`rounded border border-gray-700 px-2 py-1 ${range==='all'&&!sp.from&&!sp.to?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`} href={hrefWith({ range: 'all', p: '1', from: undefined, to: undefined })}>Todo</a>
-          <a className="ml-2 rounded border border-gray-700 px-2 py-1 hover:bg-gray-800 text-gray-300" href={hrefWith({ to: todayISO, p: '1', range: 'all' })}>Hoy</a>
+          <form method="get" action="/movimientos" className="contents">
+            <input type="hidden" name="p" value="1" />
+            {/* Mantener los valores ya tipeados al usar presets */}
+            <input type="hidden" name="ticker" value={sp.ticker ?? ''} />
+            <input type="hidden" name="type" value={sp.type ?? ''} />
+            <input type="hidden" name="from" value={sp.from ?? ''} />
+            <input type="hidden" name="to" value={sp.to ?? ''} />
+            <input type="hidden" name="qmin" value={sp.qmin ?? ''} />
+            <input type="hidden" name="qmax" value={sp.qmax ?? ''} />
+            <input type="hidden" name="pmin" value={sp.pmin ?? ''} />
+            <input type="hidden" name="pmax" value={sp.pmax ?? ''} />
+            <input type="hidden" name="amin" value={sp.amin ?? ''} />
+            <input type="hidden" name="amax" value={sp.amax ?? ''} />
+            <button name="range" value="1m" className={`rounded border border-gray-700 px-2 py-1 ${range==='1m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`}>1M</button>
+            <button name="range" value="3m" className={`rounded border border-gray-700 px-2 py-1 ${range==='3m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`}>3M</button>
+            <button name="range" value="6m" className={`rounded border border-gray-700 px-2 py-1 ${range==='6m'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`}>6M</button>
+            <button name="range" value="1y" className={`rounded border border-gray-700 px-2 py-1 ${range==='1y'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`}>1Y</button>
+            <button name="range" value="ytd" className={`rounded border border-gray-700 px-2 py-1 ${range==='ytd'?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`}>YTD</button>
+            <button name="range" value="all" className={`rounded border border-gray-700 px-2 py-1 ${range==='all'&&!sp.from&&!sp.to?'bg-gray-800 text-gray-100':'hover:bg-gray-800 text-gray-300'}`}>Todo</button>
+            <button name="to" value={todayISO} className="ml-2 rounded border border-gray-700 px-2 py-1 hover:bg-gray-800 text-gray-300">Hoy</button>
+          </form>
           <span className="ml-2 text-gray-500">{fromISO} → {toISO}</span>
         </div>
       </div>
